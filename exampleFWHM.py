@@ -12,7 +12,8 @@ from scipy.signal import medfilt
 
 import pandas as pd 
 
-
+from os import listdir
+from os.path import isfile, join
 
 # Set default plot figure size
 plt.rcParams['figure.figsize'] = (15.0, 8.0)
@@ -422,7 +423,7 @@ def measure_error(wl, flux, fwhms,
     
     return eqw_err, noise_rms
 
-def solve(File, filenum, i):
+def solve(File, filenum, linenum):
         ################################################################
     ################################################################
                     # HOW TO FIT A VOIGT PROFILE
@@ -471,7 +472,7 @@ def solve(File, filenum, i):
     line_idx_bnds = [0, 0]
 
 
-    crop =  np.logical_and(wl>wl_bounds[i][0], wl<wl_bounds[i][1])
+    crop =  np.logical_and(wl>wl_bounds[linenum][0], wl<wl_bounds[linenum][1])
 
     wl_cropped = wl[crop]
 
@@ -487,15 +488,16 @@ def solve(File, filenum, i):
     flux = hdu[0].data  
 
     # Plot the synthetic spectral line
-    plt.figure()
-    plt.plot(wl_cropped, flux_cropped, '.-g', label='With noise')
-    plt.title('Synthetic Spectral Line')
-    plt.xlabel('WL')
-    plt.ylabel('Flux')
-    plt.legend()
+    if 0:
+        plt.figure()
+        plt.plot(wl_cropped, flux_cropped, '.-g', label='With noise')
+        plt.title('Synthetic Spectral Line')
+        plt.xlabel('WL')
+        plt.ylabel('Flux')
+        plt.legend()
     #########################################################
 
-    box_wid = 37
+    box_wid = 41
     sudo_noise = 1.0
     plot_q = False
 
@@ -508,11 +510,21 @@ def solve(File, filenum, i):
     mask =  np.logical_or(wl_cropped>7389.05, wl_cropped<7388.85)
 
 
-    cont_fit = csaps.UnivariateCubicSmoothingSpline(wl_cropped[np.logical_and(gi, mask)], flux_cropped[np.logical_and(gi, mask)], smooth=0.991)(wl_cropped)
+    cont_fit = csaps.UnivariateCubicSmoothingSpline(wl_cropped[np.logical_and(gi, mask)], flux_cropped[np.logical_and(gi, mask)], smooth=0.980)(wl_cropped)
 
     flux_cropped_norm = flux_cropped / cont_fit
 
 
+    #smoothing needs to be fixed!!!
+    if 0:
+        plt.figure()
+        plt.plot(wl_cropped, flux_cropped, '.-g', label='With noise')
+        plt.plot(wl_cropped, cont_fit, '.-g', label='With noise')
+        plt.title('Synthetic Spectral Line')
+        plt.xlabel('WL')
+        plt.ylabel('Flux')
+        plt.legend()
+        plt.show()
 
     #########################################################
 
@@ -546,7 +558,7 @@ def solve(File, filenum, i):
 
     # Param 2)  Gaussian wavelength center
 
-    avg = (wl_bounds[i][0]+wl_bounds[i][1])/2;
+    avg = (wl_bounds[linenum][0]+wl_bounds[linenum][1])/2;
     avg_sv = avg
     avg_lb = avg-.2
     avg_ub = avg+.2
@@ -585,7 +597,11 @@ def solve(File, filenum, i):
 
     weights = np.ones(len(wl_cropped), dtype=float)
 
-
+    for i in range(len(weights)):
+        if np.logical_and(wl_cropped[i]>avg-.1,wl_cropped[i]<avg+.1):
+            weights[i] = weights[i]+1
+        
+    #weight center higher
 
     # It is possible to add constaints on the solver. 
     # We dont need any for this simple case and you probably dont either.
@@ -621,7 +637,6 @@ def solve(File, filenum, i):
     # * fwhms   = Full width at half max (FWHM)
     # * eqws    = Equivalent Width
 
-    print(len(flux_cropped_norm),len(wl_cropped))
     amp_f, avg_f, sd_f, lsd_f, cont_f, fwhms, eqws = fit_sl(SV, LB, UB, 
                                                        wl_cropped, flux_cropped_norm, flux_err, 
                                                        weights=weights, 
@@ -629,10 +644,10 @@ def solve(File, filenum, i):
                                                        model_type=model_type)
                                                        # Measure the error of your Equivalent Width measurement
 
-    left_lb = wl_bounds[i][0]+.1
-    left_ub = (wl_bounds[i][0]+avg*3)/4
-    right_lb = (wl_bounds[i][1]+3*avg)/4
-    right_ub = wl_bounds[i][1]-.1
+    left_lb = wl_bounds[linenum][0]+.1
+    left_ub = (wl_bounds[linenum][0]+avg*3)/4
+    right_lb = (wl_bounds[linenum][1]+3*avg)/4
+    right_ub = wl_bounds[linenum][1]-.1
 
 
     # INPUTS
@@ -673,6 +688,7 @@ def solve(File, filenum, i):
     gauss_sd = sd_f
     lorz_sd = lsd_f
     continuum_level = 1;
+
     if 0:
         plt.fill_between([avg_f - eqws/2, avg_f + eqws/2], [0, 0], [1, 1], 
                  step='mid', 
@@ -691,55 +707,57 @@ def solve(File, filenum, i):
             plt.text(avg_f, hm + 0.01, 'FWHM', horizontalalignment='center')
             plt.text(avg_f, hm - 0.035, n2s(fwhms, 3), horizontalalignment='center')
 
-    plt.plot(wl_hi, line_model(FV, wl_hi, model_type), '-r', label='Fit')
-    plt.plot(wl_hi, line_model([gauss_amp, gauss_mean, gauss_sd, lorz_sd, continuum_level], 
-                               wl_hi, model_type), ':c', label='Actual Noiseless Line')
+    if 0:
 
-    plt.title('Synthetic Spectral Line')
-    plt.xlabel('WL')
-    plt.ylabel('Flux')
-    plt.legend()
+        plt.plot(wl_hi, line_model(FV, wl_hi, model_type), '-r', label='Fit')
+        plt.plot(wl_hi, line_model([gauss_amp, gauss_mean, gauss_sd, lorz_sd, continuum_level], 
+                                   wl_hi, model_type), ':c', label='Actual Noiseless Line')
+
+        plt.title('Synthetic Spectral Line')
+        plt.xlabel('WL')
+        plt.ylabel('Flux')
+        plt.legend()
 
 
 
-    # Plot error between solved fit and actual solution
+        # Plot error between solved fit and actual solution
 
-    AV = [gauss_amp, gauss_mean, gauss_sd, lorz_sd, continuum_level]
+        AV = [gauss_amp, gauss_mean, gauss_sd, lorz_sd, continuum_level]
 
-    derr = line_model(AV, wl_hi, model_type) - line_model(FV, wl_hi, model_type)
+        derr = line_model(AV, wl_hi, model_type) - line_model(FV, wl_hi, model_type)
 
-    plt.figure(figsize=(15, 3))
-    plt.title('(Actual - Fit) Error | RMS = ' + n2s(rms(derr), 3))
-    #plt.plot(wl[mn], derr, '-', c=[0.2, 0, 0, 1])
-    plt.plot(wl_hi, derr, '-k', label='Fit Error')
-    plt.xlim(wl_cropped[0], wl_cropped[-1])
-    plt.xlabel('WL')
-    plt.ylabel('Fit Error (ADU)')
-    plt.grid()
-    plt.legend()
-    #plt.show()
+        plt.figure(figsize=(15, 3))
+        plt.title('(Actual - Fit) Error | RMS = ' + n2s(rms(derr), 3))
+        #plt.plot(wl[mn], derr, '-', c=[0.2, 0, 0, 1])
+        plt.plot(wl_hi, derr, '-k', label='Fit Error')
+        plt.xlim(wl_cropped[0], wl_cropped[-1])
+        plt.xlabel('WL')
+        plt.ylabel('Fit Error (ADU)')
+        plt.grid()
+        plt.legend()
+        #plt.show()
 
     return n2s(eqws, 5), n2s(fwhms, 5), n2s(eqw_err, 5)
 
-File = []
 
 model_type = 'voigt' 
 
-File.append( r"C:\Users\David Zhang\Desktop\STTP\MJD_57734\EXPERT3.2016-12-12T09%3A06%3A46_STAR83image_slice.fits")
-File.append(r"C:\Users\David Zhang\Desktop\STTP\MJD_57734\EXPERT3.2016-12-12T09%3A40%3A48_STAR83image_slice.fits")
-File.append(r"C:\Users\David Zhang\Desktop\STTP\MJD_57734\EXPERT3.2016-12-12T13%3A03%3A32_STAR83image_slice.fits")
+File = [join(r"C:\Users\David Zhang\Desktop\STTP\MJD_57734", f) for f in listdir(r"C:\Users\David Zhang\Desktop\STTP\MJD_57734") if isfile(join(r"C:\Users\David Zhang\Desktop\STTP\MJD_57734", f))]
+
 
 #solve(File, 2, 2)
 
 if 1:
-    w, h = 3, 3;
+    w, h = 3, len(File);
     eqwP = [[0 for x in range(w)] for y in range(h)] 
     errorP = [[0 for x in range(w)] for y in range(h)] 
     fwhmP = [[0 for x in range(w)] for y in range(h)]
 
     for f in range(len(File)):
         for i in range(3):
+            print(f)
             eqwP[f][i], fwhmP[f][i], errorP[f][i] = solve(File, f, i+1)
+
     for f in range(len(File)):
         s = File[f].find(".")
         print("Time:", File[f][s: s+10], File[f][s+12: s+14] ,"-",File[f][s+17: s+19])
